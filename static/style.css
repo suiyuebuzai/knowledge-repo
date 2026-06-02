@@ -1,0 +1,131 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+nav {
+    display: flex;
+    gap: 20px;
+    padding: 12px 0;
+    border-bottom: 2px solid #eee;
+    margin-bottom: 24px;
+}
+
+nav a {
+    text-decoration: none;
+    color: #555;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+nav a:hover, nav a.active {
+    color: #1a73e8;
+    background: #e8f0fe;
+}
+
+h1 {
+    font-size: 1.5rem;
+    margin-bottom: 16px;
+}
+
+.form-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+input[type="text"], input[type="search"] {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 1rem;
+}
+
+button {
+    padding: 10px 20px;
+    background: #1a73e8;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+button:hover { background: #1557b0; }
+button:disabled { background: #ccc; cursor: not-allowed; }
+
+.answer-box {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    min-height: 100px;
+    white-space: pre-wrap;
+    margin-bottom: 16px;
+}
+
+.sources {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.sources li { margin-bottom: 4px; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+}
+
+th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid #eee;
+}
+
+th { background: #f5f5f5; font-weight: 600; }
+
+.score {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.score-high { background: #e6f4ea; color: #1e8e3e; }
+.score-mid { background: #fef7e0; color: #b06000; }
+.score-low { background: #fce8e6; color: #c5221f; }
+
+.message {
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+
+.message-success { background: #e6f4ea; color: #1e8e3e; }
+.message-error { background: #fce8e6; color: #c5221f; }
+
+.file-list {
+    margin-top: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 6px;
+}
+
+.file-list li { margin: 4px 0; }
+
+.chunk-text {
+    max-width: 500px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

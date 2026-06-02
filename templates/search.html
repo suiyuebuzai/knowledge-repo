@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% set active = "search" %}
+{% block title %}检索 - Knowledge{% endblock %}
+{% block content %}
+<h1>语义检索</h1>
+<form action="/search" method="get" class="form-group">
+    <input type="search" name="q" value="{{ query }}" placeholder="输入关键词或问题..." autofocus>
+    <button type="submit">检索</button>
+</form>
+
+{% if query and not results %}
+<div class="message message-error">未找到相关内容，请尝试其他关键词或先上传文档。</div>
+{% endif %}
+
+{% if results %}
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>来源</th>
+            <th>相似度</th>
+            <th>内容片段</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in results %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ item.source }}</td>
+            <td>
+                {% if item.score >= 0.7 %}
+                <span class="score score-high">{{ "%.0f"|format(item.score * 100) }}%</span>
+                {% elif item.score >= 0.4 %}
+                <span class="score score-mid">{{ "%.0f"|format(item.score * 100) }}%</span>
+                {% else %}
+                <span class="score score-low">{{ "%.0f"|format(item.score * 100) }}%</span>
+                {% endif %}
+            </td>
+            <td class="chunk-text" title="{{ item.text }}">{{ item.text[:120] }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

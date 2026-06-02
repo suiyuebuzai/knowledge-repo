@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual env
+.venv/
+venv/
+
+# Data (local only)
+chroma_db/
+docs_input/*.pdf
+docs_input/*.docx
+docs_input/*.txt
+!docs_input/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+
+# pytest
+.pytest_cache/
+
+# Environment
+.env
+.env.*

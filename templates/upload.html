@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% set active = "upload" %}
+{% block title %}上传 - Knowledge{% endblock %}
+{% block content %}
+<h1>上传文档</h1>
+
+{% if msg %}
+<div class="message message-success">{{ msg }}</div>
+{% endif %}
+{% if error %}
+<div class="message message-error">{{ error }}</div>
+{% endif %}
+
+<form action="/upload" method="post" enctype="multipart/form-data" class="form-group">
+    <input type="file" name="files" multiple accept=".pdf,.docx,.txt">
+    <button type="submit">上传并索引</button>
+</form>
+
+{% if indexed_files %}
+<div class="file-list">
+    <h3>已索引文件（共 {{ indexed_files|length }} 个）</h3>
+    <ul>
+        {% for f in indexed_files %}
+        <li>{{ f.name }} — {{ f.chunks }} 个片段</li>
+        {% endfor %}
+    </ul>
+</div>
+{% else %}
+<p style="color:#666; margin-top:16px;">知识库为空，请上传文档。</p>
+{% endif %}
+{% endblock %}

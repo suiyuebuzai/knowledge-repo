@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% set active = "ask" %}
+{% block title %}问答 - Knowledge{% endblock %}
+{% block content %}
+<h1>知识库问答</h1>
+<div class="form-group">
+    <input type="text" id="question" placeholder="输入你的问题..." autofocus>
+    <button id="ask-btn" onclick="doAsk()">提问</button>
+</div>
+<div class="answer-box" id="answer">等待提问...</div>
+<ul class="sources" id="sources" style="display:none;"></ul>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function doAsk() {
+    var q = document.getElementById('question').value.trim();
+    if (!q) return;
+
+    var answerEl = document.getElementById('answer');
+    var sourcesEl = document.getElementById('sources');
+    var btn = document.getElementById('ask-btn');
+
+    answerEl.textContent = '';
+    sourcesEl.innerHTML = '';
+    sourcesEl.style.display = 'none';
+    btn.disabled = true;
+
+    var es = new EventSource('/ask/stream?q=' + encodeURIComponent(q));
+
+    es.onmessage = function(e) {
+        answerEl.textContent += e.data;
+    };
+
+    es.addEventListener('sources', function(e) {
+        var sources = JSON.parse(e.data);
+        if (sources.length > 0) {
+            sourcesEl.style.display = 'block';
+            sourcesEl.innerHTML = '<li><strong>引用来源：</strong></li>' +
+                sources.map(function(s) {
+                    return '<li>' + s.source + ' (相似度: ' + Math.round(s.score * 100) + '%)</li>';
+                }).join('');
+        }
+    });
+
+    es.addEventListener('error', function(e) {
+        if (e.data) {
+            answerEl.textContent += '\n\n[错误: ' + e.data + ']';
+        }
+        es.close();
+        btn.disabled = false;
+    });
+
+    es.addEventListener('done', function(e) {
+        es.close();
+        btn.disabled = false;
+    });
+}
+
+document.getElementById('question').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doAsk();
+});
+</script>
+{% endblock %}
