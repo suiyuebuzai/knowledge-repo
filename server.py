@@ -20,6 +20,10 @@ from mcp.server.fastmcp import FastMCP
 
 import config
 import retriever
+import bm25_store
+
+# 启动时从 ChromaDB 重建 BM25 索引
+bm25_store.rebuild_from_chroma()
 
 _port = int(os.environ.get("KNOWLEDGE_SERVER_PORT", "8001"))
 mcp = FastMCP("knowledge", port=_port)

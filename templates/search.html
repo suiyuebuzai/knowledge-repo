@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% set active = "search" %}
-{% block title %}检索 - Knowledge{% endblock %}
+{% block title %}搜文档 - Knowledge{% endblock %}
 {% block content %}
-<h1>语义检索</h1>
+<h1>搜文档</h1>
 <form action="/search" method="get" class="form-group">
     <input type="search" name="q" value="{{ query }}" placeholder="输入关键词或问题..." autofocus>
     <button type="submit">检索</button>

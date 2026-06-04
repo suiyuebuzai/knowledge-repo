@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+{% set active = "dept_tree" %}
+{% block title %}部门层级 - Knowledge{% endblock %}
+{% block content %}
+<h1>看部门</h1>
+
+<div class="form-group">
+    <input type="text" id="search-input" placeholder="搜索部门名称..." oninput="filterTree(this.value)">
+    <button onclick="resetView()">重置视图</button>
+    <button onclick="expandAll()">全部展开</button>
+    <button onclick="collapseAll()">全部折叠</button>
+    <button onclick="refreshData()" id="refresh-btn">刷新数据</button>
+</div>
+
+<div id="stats-bar" style="font-size:0.85rem; color:#666; margin-bottom:8px;">
+    {% if loaded %}数据已加载{% else %}暂无数据，请点击"刷新数据"从服务器获取{% endif %}
+</div>
+
+<div style="display:flex; gap:12px; height:calc(100vh - 160px);">
+    <div id="tree-container" style="flex:1; border:1px solid #ddd; border-radius:8px; overflow:hidden; position:relative;">
+        <div id="tooltip" style="position:absolute; display:none; background:rgba(0,0,0,0.8); color:white; padding:8px 12px; border-radius:6px; font-size:0.85rem; pointer-events:none; z-index:100; max-width:280px;"></div>
+    </div>
+    <div id="members-panel" style="width:280px; background:#f8f9fa; border-radius:8px; padding:12px; overflow-y:auto; display:none;">
+        <h3 id="panel-title" style="font-size:1rem; margin-bottom:8px;"></h3>
+        <p id="panel-subtitle" style="font-size:0.8rem; color:#888; margin-bottom:12px;"></p>
+        <div id="panel-members"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+(function() {
+    const container = document.getElementById('tree-container');
+    const tooltip = document.getElementById('tooltip');
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    // SVG 初始化
+    const svg = d3.select('#tree-container')
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+    const g = svg.append('g');
+
+    // 缩放
+    const zoom = d3.zoom()
+        .scaleExtent([0.2, 4])
+        .on('zoom', (event) => g.attr('transform', event.transform));
+    svg.call(zoom);
+
+    let root, treeLayout;
+    let allData;
+
+    // 配色
+    const colorScale = d3.scaleOrdinal(d3.schemeTableau10);
+
+    function loadData() {
+        const stats = document.getElementById('stats-bar');
+        stats.textContent = '加载中...';
+
+        d3.json('/graph/api/dept-tree').then(data => {
+            if (data.error) {
+                stats.textContent = data.error;
+                return;
+            }
+            renderTree(data);
+        }).catch(err => {
+            stats.textContent = '加载失败: ' + err.message;
+        });
+    }
+
+    function renderTree(data) {
+        // 清除旧图
+        g.selectAll('*').remove();
+
+        allData = data;
+        root = d3.hierarchy(data);
+        root.x0 = height / 2;
+        root.y0 = 0;
+
+        // 初始只展开第一层
+        if (root.children) root.children.forEach(collapse);
+
+        treeLayout = d3.tree().nodeSize([22, 220]);
+        update(root);
+
+        // 统计
+        const stats = document.getElementById('stats-bar');
+        const totalDivisions = data.children ? data.children.length : 0;
+        let totalDepts = 0;
+        if (data.children) {
+            data.children.forEach(d => { totalDepts += d.children ? d.children.length : 0; });
+        }
+        stats.textContent = `共 ${totalDivisions} 个体系，${totalDepts} 个部门`;
+
+        // 初始居中
+        svg.call(zoom.transform, d3.zoomIdentity.translate(80, height / 2).scale(0.9));
+    }
+
+    // 刷新数据（从 API 重新拉取）
+    window.refreshData = function() {
+        const btn = document.getElementById('refresh-btn');
+        const stats = document.getElementById('stats-bar');
+        btn.disabled = true;
+        btn.textContent = '刷新中...';
+        stats.textContent = '正在从数据湖重新拉取数据...';
+
+        fetch('/graph/api/dept-tree/refresh', { method: 'POST' })
+            .then(r => r.json())
+            .then(result => {
+                btn.disabled = false;
+                btn.textContent = '刷新数据';
+                if (result.error) {
+                    stats.textContent = '刷新失败: ' + result.error;
+                } else {
+                    stats.textContent = `刷新成功: ${result.divisions} 个体系, ${result.departments} 个部门`;
+                    loadData();
+                }
+            })
+            .catch(err => {
+                btn.disabled = false;
+                btn.textContent = '刷新数据';
+                stats.textContent = '刷新失败: ' + err.message;
+            });
+    };
+
+    // 初始加载
+    loadData();
+
+    function collapse(d) {
+        if (d.children) {
+            d._children = d.children;
+            d._children.forEach(collapse);
+            d.children = null;
+        }
+    }
+
+    function expand(d) {
+        if (d._children) {
+            d.children = d._children;
+            d._children = null;
+            d.children.forEach(expand);
+        }
+    }
+
+    function update(source) {
+        const duration = 300;
+        const tree = treeLayout(root);
+        const nodes = tree.descendants();
+        const links = tree.links();
+
+        // 节点
+        const node = g.selectAll('g.node')
+            .data(nodes, d => d.data.id || d.id);
+
+        const nodeEnter = node.enter().append('g')
+            .attr('class', 'node')
+            .attr('transform', `translate(${source.y0},${source.x0})`)
+            .on('click', (event, d) => toggle(d))
+            .on('mouseover', (event, d) => showTooltip(event, d))
+            .on('mouseout', () => hideTooltip());
+
+        nodeEnter.append('circle')
+            .attr('r', 0)
+            .attr('fill', d => getNodeColor(d))
+            .attr('stroke', d => d._children ? '#666' : '#ccc')
+            .attr('stroke-width', 1.5);
+
+        nodeEnter.append('text')
+            .attr('dy', '0.35em')
+            .attr('x', d => d.children || d._children ? -10 : 10)
+            .attr('text-anchor', d => d.children || d._children ? 'end' : 'start')
+            .attr('font-size', d => d.depth === 0 ? '14px' : d.depth === 1 ? '12px' : '11px')
+            .attr('font-weight', d => d.depth <= 1 ? '600' : '400')
+            .text(d => d.data.name)
+            .attr('fill-opacity', 0);
+
+        // 更新
+        const nodeUpdate = nodeEnter.merge(node);
+
+        nodeUpdate.transition().duration(duration)
+            .attr('transform', d => `translate(${d.y},${d.x})`);
+
+        nodeUpdate.select('circle')
+            .attr('r', d => d.depth === 0 ? 8 : d._children ? 6 : 4)
+            .attr('fill', d => getNodeColor(d))
+            .attr('stroke', d => d._children ? '#666' : '#ccc');
+
+        nodeUpdate.select('text')
+            .attr('x', d => d.children || d._children ? -10 : 10)
+            .attr('text-anchor', d => d.children || d._children ? 'end' : 'start')
+            .attr('fill-opacity', 1);
+
+        // 退出
+        const nodeExit = node.exit().transition().duration(duration)
+            .attr('transform', `translate(${source.y},${source.x})`)
+            .remove();
+
+        nodeExit.select('circle').attr('r', 0);
+        nodeExit.select('text').attr('fill-opacity', 0);
+
+        // 连线
+        const link = g.selectAll('path.link')
+            .data(links, d => d.target.data.id);
+
+        const linkEnter = link.enter().insert('path', 'g')
+            .attr('class', 'link')
+            .attr('fill', 'none')
+            .attr('stroke', '#ccc')
+            .attr('stroke-width', 1)
+            .attr('d', () => {
+                const o = {x: source.x0, y: source.y0};
+                return diagonal(o, o);
+            });
+
+        linkEnter.merge(link).transition().duration(duration)
+            .attr('d', d => diagonal(d.source, d.target));
+
+        link.exit().transition().duration(duration)
+            .attr('d', () => {
+                const o = {x: source.x, y: source.y};
+                return diagonal(o, o);
+            })
+            .remove();
+
+        // 保存位置
+        nodes.forEach(d => {
+            d.x0 = d.x;
+            d.y0 = d.y;
+        });
+    }
+
+    function diagonal(s, d) {
+        return `M ${s.y} ${s.x}
+                C ${(s.y + d.y) / 2} ${s.x},
+                  ${(s.y + d.y) / 2} ${d.x},
+                  ${d.y} ${d.x}`;
+    }
+
+    function toggle(d) {
+        if (d.children || d._children) {
+            // 有子节点：展开/折叠
+            if (d.children) {
+                d._children = d.children;
+                d.children = null;
+            } else {
+                d.children = d._children;
+                d._children = null;
+            }
+            update(d);
+        }
+        // 非根节点：查询人员
+        if (d.depth > 0 && d.data.id) {
+            showMembers(d.data);
+        }
+    }
+
+    function showMembers(nodeData) {
+        const panel = document.getElementById('members-panel');
+        const title = document.getElementById('panel-title');
+        const subtitle = document.getElementById('panel-subtitle');
+        const membersDiv = document.getElementById('panel-members');
+
+        panel.style.display = 'block';
+        title.textContent = nodeData.name;
+        subtitle.textContent = `编号: ${nodeData.id}`;
+        membersDiv.innerHTML = '<p style="color:#888;">查询中...</p>';
+
+        const sap = nodeData.deptnosap || '';
+        fetch(`/graph/api/dept?no=${encodeURIComponent(nodeData.id)}&sap=${encodeURIComponent(sap)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    membersDiv.innerHTML = `<p style="color:#c5221f;">${data.error}</p>`;
+                    return;
+                }
+                const members = data.members || [];
+                if (members.length === 0) {
+                    membersDiv.innerHTML = '<p style="color:#888;">暂无人员数据</p>';
+                    return;
+                }
+                membersDiv.innerHTML = `<p style="font-size:0.8rem; color:#666; margin-bottom:8px;">共 ${members.length} 人</p>` +
+                    members.map(m => `
+                        <div style="padding:6px 0; border-bottom:1px solid #eee; font-size:0.85rem;">
+                            <strong>${m.empname || m.empno}</strong>
+                            <span style="color:#888; margin-left:6px;">${m.empno}</span>
+                            <div style="color:#666; font-size:0.8rem;">${m.jobname || ''}</div>
+                        </div>
+                    `).join('');
+            })
+            .catch(err => {
+                membersDiv.innerHTML = `<p style="color:#c5221f;">查询失败: ${err.message}</p>`;
+            });
+    }
+
+    function getNodeColor(d) {
+        if (d.depth === 0) return '#1a73e8';
+        if (d.depth === 1) return colorScale(d.data.id);
+        // 子节点继承父体系的颜色（淡色）
+        let parent = d.parent;
+        while (parent && parent.depth > 1) parent = parent.parent;
+        if (parent) return d3.color(colorScale(parent.data.id)).brighter(0.8);
+        return '#999';
+    }
+
+    function showTooltip(event, d) {
+        const data = d.data;
+        let html = `<strong>${data.name}</strong>`;
+        if (data.id) html += `<br>编号: ${data.id}`;
+        if (data.deptnosap) html += `<br>SAP: ${data.deptnosap}`;
+        if (data.bunithead) html += `<br>体系负责人: ${data.bunithead}`;
+        if (data.firstresponse) html += `<br>第一负责人: ${data.firstresponse}`;
+        if (d._children) html += `<br><em>点击展开 ${d._children.length} 个子节点</em>`;
+
+        tooltip.innerHTML = html;
+        tooltip.style.display = 'block';
+        tooltip.style.left = (event.offsetX + 15) + 'px';
+        tooltip.style.top = (event.offsetY - 10) + 'px';
+    }
+
+    function hideTooltip() {
+        tooltip.style.display = 'none';
+    }
+
+    // 全局操作
+    window.resetView = function() {
+        svg.transition().duration(500)
+            .call(zoom.transform, d3.zoomIdentity.translate(80, height / 2).scale(0.9));
+    };
+
+    window.expandAll = function() {
+        root.descendants().forEach(d => {
+            if (d._children) {
+                d.children = d._children;
+                d._children = null;
+            }
+        });
+        update(root);
+    };
+
+    window.collapseAll = function() {
+        root.children.forEach(collapse);
+        update(root);
+    };
+
+    window.filterTree = function(query) {
+        if (!query.trim()) {
+            // 重置高亮
+            g.selectAll('g.node text').attr('fill', '#333').attr('font-weight', d => d.depth <= 1 ? '600' : '400');
+            return;
+        }
+        const q = query.toLowerCase();
+
+        // 展开包含匹配的路径
+        function expandMatching(node) {
+            let hasMatch = false;
+            if (node.data.name && node.data.name.toLowerCase().includes(q)) {
+                hasMatch = true;
+            }
+            const children = node.children || node._children;
+            if (children) {
+                children.forEach(child => {
+                    if (expandMatching(child)) hasMatch = true;
+                });
+                if (hasMatch && node._children) {
+                    node.children = node._children;
+                    node._children = null;
+                }
+            }
+            return hasMatch;
+        }
+        expandMatching(root);
+        update(root);
+
+        // 高亮匹配节点
+        g.selectAll('g.node text')
+            .attr('fill', d => d.data.name && d.data.name.toLowerCase().includes(q) ? '#d93025' : '#333')
+            .attr('font-weight', d => d.data.name && d.data.name.toLowerCase().includes(q) ? '700' : (d.depth <= 1 ? '600' : '400'));
+    };
+})();
+</script>
+{% endblock %}

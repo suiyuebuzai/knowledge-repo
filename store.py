@@ -24,6 +24,9 @@ def upsert(chunks: list[dict], embeddings: list[list[float]]) -> None:
         metadatas=[c["metadata"] for c in chunks],
         embeddings=embeddings,
     )
+    # 同步 BM25 索引
+    import bm25_store
+    bm25_store.add(chunks)
 
 
 def search(query_embedding: list[float], top_k: int) -> list[dict]:

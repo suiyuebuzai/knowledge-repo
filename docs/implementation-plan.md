@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 构建 knowledge-server，让 AI Agent 通过 MCP 工具对本地文档（PDF/Word/TXT）进行语义检索和 RAG 问答，并提供 Web 界面进行文档问答、语义检索和上传索引。
+**Goal:** 构建统一知识服务（knowledge-server），支持 Agent Function Calling / MCP 和 Web API 两种访问形式。包含文档混合检索（向量+BM25）、组织关系图谱、数据湖仓查询等知识模块。
 
-**Architecture:** 手写 RAG 流水线，不依赖 LlamaIndex 等重框架。索引时：chunker 解析文档 → embedder 本地向量化 → store 写入 ChromaDB。查询时：retriever 组合 embedder + store，server 暴露 2 个 MCP 工具。Web App (FastAPI) 直接 import 现有模块，Jinja2 服务端渲染页面，问答使用 SSE 流式输出。
+**Architecture:** 混合 RAG 流水线（向量语义 + BM25 关键词 → RRF 融合）+ NetworkX 图谱模块 + lakehouse 双形态模块（函数 + MCP）。文档索引：chunker → embedder → ChromaDB + BM25 索引；图谱：lakehouse API → 本地 JSON 缓存 → MultiDiGraph → 图查询/NL 问答；lakehouse：共享 API 客户端供内部模块和外部 Agent 使用。Web App (FastAPI) 左右布局，统一提供 HTML 页面和 JSON API。
 
-**Tech Stack:** `sentence-transformers`（本地 Embedding）, `chromadb`（向量数据库）, `pypdf`（PDF 解析）, `python-docx`（Word 解析）, `mcp[cli]` + `FastMCP`（MCP Server）, `anthropic` SDK（ask_document 内部调 Claude）, `fastapi` + `uvicorn` + `jinja2` + `python-multipart`（Web App）
+**Tech Stack:** `sentence-transformers`（本地 Embedding）, `chromadb`（向量数据库）, `rank_bm25` + `jieba`（BM25 关键词检索）, `pypdf`（PDF 解析）, `python-docx`（Word 解析）, `mcp[cli]` + `FastMCP`（MCP Server）, `anthropic` SDK（RAG + NL 问答）, `fastapi` + `uvicorn` + `jinja2`（Web App）, `networkx`（图数据结构）, `httpx`（API 调用）, `vis-network` CDN（图谱可视化）
 
 ---
 
@@ -14,24 +14,45 @@
 
 | 文件 | 职责 |
 |------|------|
-| `knowledge-server/config.py` | 配置常量（路径、模型名、分块参数、WEB_PORT） |
-| `knowledge-server/embedder.py` | sentence-transformers 向量化，纯函数 |
-| `knowledge-server/store.py` | ChromaDB 读写封装 |
-| `knowledge-server/chunker.py` | 文档解析与分块 |
-| `knowledge-server/retriever.py` | 组合 embedder + store，供 server 调用 |
-| `knowledge-server/ingest.py` | 扫描目录、索引所有文档，命令行触发 |
-| `knowledge-server/server.py` | FastMCP Server，2 个工具 |
-| `knowledge-server/web_app.py` | FastAPI 应用入口，所有 Web 路由 |
-| `knowledge-server/templates/base.html` | Jinja2 公共布局（导航栏 + 内容容器） |
-| `knowledge-server/templates/ask.html` | 问答页（输入框 + SSE 流式展示区） |
-| `knowledge-server/templates/search.html` | 检索页（搜索框 + 结果表格） |
-| `knowledge-server/templates/upload.html` | 上传页（文件选择 + 已索引列表） |
-| `knowledge-server/static/style.css` | 全局样式 |
-| `knowledge-server/tests/conftest.py` | pytest 路径配置 |
-| `knowledge-server/tests/test_embedder.py` | embedder 单元测试 |
-| `knowledge-server/tests/test_store.py` | store 单元测试 |
-| `knowledge-server/tests/test_chunker.py` | chunker 单元测试 |
-| `knowledge-server/tests/test_retriever.py` | retriever 集成测试 |
+| `config.py` | 配置常量（路径、模型名、分块参数、BM25 权重、图谱配置、Lakehouse 凭证） |
+| `embedder.py` | sentence-transformers 向量化，纯函数 |
+| `store.py` | ChromaDB 读写封装（写入时同步 BM25 索引） |
+| `bm25_store.py` | BM25 内存索引（jieba 分词 + BM25Plus + 增量/全量同步） |
+| `chunker.py` | 文档解析与分块 |
+| `retriever.py` | 混合检索器（向量 + BM25 → RRF 融合） |
+| `ingest.py` | 扫描目录、索引所有文档，命令行触发 |
+| `server.py` | FastMCP Server，2 个工具 |
+| `web_app.py` | FastAPI 应用入口，所有 Web 路由 |
+| `lakehouse/__init__.py` | lakehouse 模块导出 |
+| `lakehouse/auth.py` | TokenManager（按 tgt_svc 缓存 token） |
+| `lakehouse/client.py` | 核心 API 函数（query_dataset, get_record, list_datasets, get_dataset_fields） |
+| `lakehouse/server.py` | MCP SSE Server（独立启动，端口 8000） |
+| `graph/__init__.py` | 图谱模块入口，暴露 graph_manager 单例 |
+| `graph/builder.py` | 原始 JSON → NetworkX MultiDiGraph |
+| `graph/loader.py` | 分页拉取 + 本地 JSON 缓存 + GraphManager |
+| `graph/query.py` | 图查询函数（9 个） |
+| `graph/nl_query.py` | Claude function calling 问答（8 个工具） |
+| `graph/dept_loader.py` | 部门层级数据加载 + 缓存 + DeptManager |
+| `graph/export_departments.py` | CLI 导出部门树到 JSON |
+| `templates/base.html` | Jinja2 公共布局（左右布局 + 侧边菜单） |
+| `templates/ask.html` | 问知识（输入框 + SSE 流式展示区 + Markdown 渲染） |
+| `templates/search.html` | 搜文档（搜索框 + 结果表格） |
+| `templates/upload.html` | 传文件（文件选择 + 已索引列表） |
+| `templates/graph.html` | 查关系（vis.js 力导向图） |
+| `templates/graph_ask.html` | 问组织（自然语言问答 + Markdown 渲染） |
+| `templates/dept_tree.html` | 看部门（D3 部门层级树形图） |
+| `static/style.css` | 全局样式（左右布局 + Markdown 排版） |
+| `static/marked.min.js` | Markdown 渲染库（本地托管） |
+| `static/graph.js` | vis.js 图交互逻辑 |
+| `tests/conftest.py` | pytest 路径配置 |
+| `tests/test_embedder.py` | embedder 单元测试 |
+| `tests/test_store.py` | store 单元测试 |
+| `tests/test_chunker.py` | chunker 单元测试 |
+| `tests/test_retriever.py` | retriever 集成测试 |
+| `tests/test_bm25_store.py` | BM25 索引单元测试 |
+| `tests/test_hybrid_retriever.py` | 混合检索集成测试 |
+| `tests/test_builder.py` | graph builder 单元测试 |
+| `tests/test_query.py` | graph query 单元测试 |
 
 ---
 
@@ -1682,24 +1703,243 @@ git commit -m "fix: polish knowledge web app"
 
 ---
 
+## Part 3: 组织图谱模块
+
+**Status:** 已完成 (2026-06-03)，28 个单元测试全部通过。
+
+**Goal:** 在 knowledge-server 中新增组织图谱模块，从 lakehouse API 加载人员数据构建 NetworkX 图，提供可视化、关系查询、路径分析和自然语言问答。
+
+**Architecture:** `graph/loader.py` 分页拉取 OA 人员数据 → 本地 JSON 缓存 → `graph/builder.py` 构建 NetworkX MultiDiGraph（28K 节点，5种边） → `graph/query.py` 提供图查询函数 → `web_app.py` 新增 `/graph/*` 路由 → vis.js 前端力导向图渲染 → `graph/nl_query.py` 用 Claude function calling 实现自然语言问答。
+
+**Tech Stack:** `networkx`（图数据结构）, `httpx`（API 调用）, `python-dotenv`（凭证管理）, `vis-network` CDN（前端可视化）, `anthropic` SDK（NL 问答）
+
+### 实施偏差记录
+
+| 变更 | 原因 |
+|------|------|
+| DiGraph → MultiDiGraph | 同一对节点间存在多种边类型，DiGraph 会覆盖 |
+| get_neighbors 增加 max_nodes=80 | 高层管理者 depth=2 返回数千节点，vis.js 无法渲染 |
+| 同一对节点只保留最高优先级边 | 减少前端重叠边 |
+| 新增本地 JSON 文件缓存 | 启动速度从 5s → <1s，人员变动低频无需每次拉 API |
+| 启动时自动从缓存加载 | 用户打开页面即可搜索，无需手动点"加载" |
+| "加载数据"按钮改为"刷新数据" | 只在需要更新数据时才调 API |
+
+### File Map
+
+| 文件 | 职责 |
+|------|------|
+| `graph/__init__.py` | 模块入口，暴露 graph_manager 单例 |
+| `graph/loader.py` | 分页拉取人员数据 + 本地 JSON 缓存 + GraphManager（依赖 lakehouse 模块） |
+| `graph/builder.py` | 原始 JSON → NetworkX MultiDiGraph |
+| `graph/query.py` | 图查询函数（9 个：搜索/上下级链/路径/部门成员/统计） |
+| `graph/nl_query.py` | 自然语言 → Claude function calling → 图查询（8 个工具 + 调用链日志） |
+| `graph/dept_loader.py` | 部门层级数据加载 + 缓存 + DeptManager（resolve_dept_codes） |
+| `templates/graph.html` | 查关系（vis.js 力导向图） |
+| `templates/graph_ask.html` | 问组织（自然语言问答） |
+| `templates/dept_tree.html` | 看部门（D3 树形图 + 人员面板） |
+| `static/graph.js` | 前端图交互逻辑 |
+| `config.py` | 新增图谱配置（修改） |
+| `web_app.py` | 新增 /graph/* 路由（修改） |
+| `templates/base.html` | 导航栏新增"组织图谱"（修改） |
+| `.env.uat` | 新增 lakehouse 凭证（修改） |
+| `tests/test_builder.py` | builder 单元测试（5 个） |
+| `tests/test_query.py` | query 单元测试（23 个） |
+
+### Task 14: 依赖安装 + 配置 + lakehouse client
+
+- [x] 安装 networkx
+- [x] 修改 config.py 追加图谱配置（GRAPH_TTL、ENVISION_BASE_URL 等）
+- [x] 创建 .env.uat（添加 lakehouse 凭证）
+- [x] 创建 graph/__init__.py
+- [x] 创建 graph/lakehouse_client.py（token 管理 + query_dataset）→ 后续迁移到 lakehouse/ 模块
+- [x] 验证 lakehouse_client 可连通 API
+- [x] Commit
+
+### Task 15: graph/builder.py（TDD）
+
+- [x] 写失败测试（5 个：节点数、属性、边、跳过缺失目标、多边类型）
+- [x] 运行确认失败
+- [x] 实现 build_graph → MultiDiGraph（两遍扫描：先节点后边）
+- [x] 运行确认通过
+- [x] Commit
+
+### Task 16: graph/query.py — 搜索 + 上下级链（TDD）
+
+- [x] 写失败测试（搜索 5 个 + 上级链 3 个 + 下属 3 个 + 邻居 3 个）
+- [x] 运行确认失败
+- [x] 实现 search_person、get_superior_chain、get_subordinates、get_neighbors
+- [x] 运行确认通过
+- [x] Commit
+
+### Task 17: graph/query.py — 路径分析 + 统计（TDD）
+
+- [x] 追加测试（路径 3 个 + 共同上级 3 个 + 部门成员 2 个 + 统计 1 个）
+- [x] 运行确认失败
+- [x] 实现 find_path、find_common_superior、get_dept_members、get_stats
+- [x] 运行确认通过
+- [x] Commit
+
+### Task 18: graph/loader.py + GraphManager
+
+- [x] 实现 fetch_all_employees（分页拉取）
+- [x] 实现 GraphManager（本地 JSON 缓存 + 内存缓存）
+- [x] 更新 graph/__init__.py 暴露 graph_manager
+- [x] 验证加载（连接生产数据，28,235 节点）
+- [x] Commit
+
+### Task 19: Web 路由 + 可视化页面
+
+- [x] base.html 导航栏新增"组织图谱"
+- [x] web_app.py 新增 /graph/* 路由（含启动时自动加载缓存）
+- [x] 创建 templates/graph.html（vis.js 力导向图）
+- [x] 创建 static/graph.js（搜索/渲染/详情/上级链/路径）
+- [x] 验证页面可访问
+- [x] Commit
+
+### Task 20: 自然语言问答（Claude function calling）
+
+- [x] 实现 graph/nl_query.py（8 个工具，最多 5 轮调用，含调用链日志）
+- [x] 创建 templates/graph_ask.html
+- [x] web_app.py 新增 /graph/ask 和 /graph/api/ask 路由
+- [x] 新增 get_dept_members_by_no 工具（自动解析 deptno/deptnosap 双编号）
+- [x] 验证路由可访问
+- [x] Commit
+
+### Task 21: 端到端验证 + 样式补充
+
+- [x] style.css 追加图谱相关样式
+- [x] 端到端验证（可视化 + 搜索 + 节点交互 + NL 问答）
+- [x] 运行全部测试确认无回归（43 个测试全部 PASS）
+- [x] Final commit
+
+---
+
+## Part 4: Lakehouse 模块提取 + UI 重构
+
+**Status:** 已完成 (2026-06-03)
+
+**Goal:** 将 `graph/lakehouse_client.py` 提取为独立 `lakehouse/` 模块（双形态：函数调用 + MCP SSE），新增 `describe_dataset` 功能；Web App 页面改为左右布局（侧边菜单 + 主内容区）。
+
+### Task 22: 提取 lakehouse/ 模块
+
+- [x] 新增 config.py 配置项（LIGHTNING_DATA_SVC, DATALAKE_TGT_SVC）
+- [x] 新增 .env.uat 配置项
+- [x] 创建 lakehouse/auth.py（TokenManager 独立模块）
+- [x] 创建 lakehouse/client.py（4 个 API 函数：query_dataset, get_record, list_datasets, get_dataset_fields）
+- [x] 创建 lakehouse/__init__.py（统一导出）
+- [x] 创建 lakehouse/server.py（MCP SSE Server，4 个工具）
+- [x] 修改 graph/loader.py 改为 `from lakehouse import query_dataset`
+- [x] 删除旧 graph/lakehouse_client.py
+- [x] 验证：直接 import + 图谱加载 + 43 个测试全部通过
+
+### Task 23: Web App 左右布局重构
+
+- [x] 重写 templates/base.html（aside.sidebar + main.content 结构）
+- [x] 重写 static/style.css（flexbox 左右布局，侧边菜单样式）
+- [x] 左侧菜单分组：知识库（问知识/搜文档/传文件）、组织架构（查关系/问组织/看部门）
+- [x] 页面 h1 标题与菜单名称统一（动词+对象风格）
+- [x] 更新 graph.html 移除旧 max-width hack 和多余链接
+- [x] 更新 graph_ask.html active 变量为 "graph_ask"
+- [x] 新增 dept_tree.html（D3 部门层级树形图 + 点击查看部门成员）
+- [x] 验证所有 6 个页面正常渲染
+
+### Task 24: 问答页 Markdown 渲染
+
+- [x] 下载 marked.min.js 到 static/ 目录（本地托管，避免 CDN 问题）
+- [x] ask.html：引入 marked.js，SSE 流式接收时累积原文 → marked.parse() 实时渲染为 HTML
+- [x] graph_ask.html：引入 marked.js，API 返回结果用 marked.parse() 渲染
+- [x] style.css：.answer-box 新增 markdown 排版样式（标题/列表/代码块/引用/表格）
+- [x] 移除 .answer-box 的 white-space: pre-wrap（改由 markdown 元素自身控制换行）
+
+---
+
+## Part 5: BM25 混合检索
+
+**Status:** 已完成 (2026-06-03)
+
+**Goal:** 在纯向量语义检索基础上引入 BM25 关键词路径，通过 RRF 融合提升检索质量（尤其是关键词精确匹配场景）。
+
+**Architecture:** 新增 `bm25_store.py` 维护内存 BM25 索引（jieba 中文分词 + BM25Plus），重写 `retriever.py` 为双路混合检索器（向量 0.7 + BM25 0.3），通过 Reciprocal Rank Fusion 融合排序。`store.upsert()` 写入时自动同步 BM25 索引，Web App 启动时从 ChromaDB 全量恢复 BM25 状态。
+
+**Tech Stack:** `rank_bm25`（BM25Plus 算法）, `jieba`（中文分词）
+
+### 实施偏差记录
+
+| 变更 | 原因 |
+|------|------|
+| 选用 BM25Plus 而非 BM25Okapi | BM25Plus 对零频词处理更优，避免罕见词得分为负 |
+| 每路候选 20 条（非 top_k） | RRF 需要足够候选池进行融合，提升召回率 |
+| BM25 索引为空时静默退化 | 兼容旧数据（直接写入 ChromaDB 未经 store.upsert 的场景） |
+| 按 text 去重而非 id | RRF 两路可能返回同一 chunk，按内容去重更稳健 |
+
+### File Map
+
+| 文件 | 职责 |
+|------|------|
+| `bm25_store.py` | BM25 内存索引（jieba 分词 + BM25Plus + 增量/全量同步） |
+| `retriever.py` | 混合检索器（向量 + BM25 → RRF 融合） |
+| `store.py` | 新增 `bm25_store.add(chunks)` 同步调用 |
+| `config.py` | 新增 BM25_WEIGHT、HYBRID_CANDIDATE_K |
+| `web_app.py` | 启动时调用 `bm25_store.rebuild_from_chroma()` |
+| `tests/test_bm25_store.py` | BM25 索引单元测试 |
+| `tests/test_hybrid_retriever.py` | 混合检索集成测试 |
+
+### Task 25: bm25_store.py（TDD）
+
+- [x] 写失败测试（分词、搜索、空索引、score 归一化、top_k 限制、rebuild_from_chroma）
+- [x] 运行确认失败
+- [x] 安装依赖：`pip install rank_bm25 jieba`
+- [x] 实现 bm25_store.py（_tokenize + add + rebuild_from_chroma + search + clear）
+- [x] 运行确认通过
+- [x] Commit
+
+### Task 26: retriever.py 改为混合检索（TDD）
+
+- [x] 写失败测试（关键词命中提升排名、输出格式、BM25 空退化、top_k 限制、跨路去重）
+- [x] 运行确认失败
+- [x] 实现 _rrf_fuse + 重写 search 为双路混合检索
+- [x] 运行确认通过
+- [x] Commit
+
+### Task 27: store.py + web_app.py 集成
+
+- [x] store.upsert 末尾追加 bm25_store.add(chunks) 同步
+- [x] web_app.py 启动时调用 bm25_store.rebuild_from_chroma()
+- [x] config.py 新增 BM25_WEIGHT=0.3, HYBRID_CANDIDATE_K=20
+- [x] 运行全部测试确认无回归
+- [x] 端到端验证（搜索页 + 问答页）
+- [x] Commit
+
+---
+
 ## 快速参考
 
 ```bash
-# 索引文档
 cd knowledge-server
+
+# 索引文档
 C:/1AI/.pvenv/Scripts/python.exe ingest.py
 
-# 启动 MCP Server（端口 8001）
-C:/1AI/.pvenv/Scripts/python.exe server.py
-
-# 启动 Web App（端口 8080，可同时运行）
+# 启动 Web App（端口 8080，浏览器访问）
 C:/1AI/.pvenv/Scripts/python.exe web_app.py
 
-# 启动 lakehouse server（端口 8000，另开终端）
-cd ../lakehouse-mcp-server
+# 启动 Knowledge MCP Server（端口 8001，文档检索/问答）
 C:/1AI/.pvenv/Scripts/python.exe server.py
 
+# 启动 Lakehouse MCP Server（端口 8000，数据湖仓查询）
+C:/1AI/.pvenv/Scripts/python.exe lakehouse/server.py
+
+# 导出部门树到 JSON
+C:/1AI/.pvenv/Scripts/python.exe graph/export_departments.py --env uat
+
 # 运行所有单元测试
-cd knowledge-server
 C:/1AI/.pvenv/Scripts/python.exe -m pytest tests/ -v
+
+# 页面地址
+# http://localhost:8080/              问知识（文档问答，混合检索 + Claude 流式生成）
+# http://localhost:8080/search        搜文档（混合检索，向量+BM25）
+# http://localhost:8080/upload        传文件（文档上传 + 自动索引）
+# http://localhost:8080/graph         查关系（图谱可视化）
+# http://localhost:8080/graph/ask     问组织（图谱问答）
+# http://localhost:8080/graph/dept-tree  看部门（部门层级）
 ```

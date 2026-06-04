@@ -4,32 +4,76 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     line-height: 1.6;
     color: #333;
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 20px;
+    height: 100vh;
+    overflow: hidden;
 }
 
-nav {
+/* ── 左右布局 ── */
+.layout {
     display: flex;
-    gap: 20px;
-    padding: 12px 0;
-    border-bottom: 2px solid #eee;
-    margin-bottom: 24px;
+    height: 100vh;
 }
 
-nav a {
+.sidebar {
+    width: 200px;
+    background: #f8f9fa;
+    border-right: 1px solid #e0e0e0;
+    padding: 16px 0;
+    flex-shrink: 0;
+    overflow-y: auto;
+}
+
+.sidebar-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #1a73e8;
+    padding: 0 16px 16px;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 12px;
+}
+
+.menu-section {
+    margin-bottom: 16px;
+}
+
+.menu-heading {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 16px 4px;
+    margin-bottom: 2px;
+}
+
+.sidebar a {
+    display: block;
+    padding: 6px 16px 6px 24px;
     text-decoration: none;
     color: #555;
-    font-weight: 500;
-    padding: 4px 8px;
-    border-radius: 4px;
+    font-size: 0.9rem;
+    border-left: 3px solid transparent;
 }
 
-nav a:hover, nav a.active {
+.sidebar a:hover {
     color: #1a73e8;
     background: #e8f0fe;
 }
 
+.sidebar a.active {
+    color: #1a73e8;
+    background: #e8f0fe;
+    border-left-color: #1a73e8;
+    font-weight: 500;
+}
+
+.content {
+    flex: 1;
+    padding: 24px 32px;
+    overflow-y: auto;
+}
+
+/* ── 通用组件 ── */
 h1 {
     font-size: 1.5rem;
     margin-bottom: 16px;
@@ -68,9 +112,55 @@ button:disabled { background: #ccc; cursor: not-allowed; }
     border-radius: 8px;
     padding: 16px;
     min-height: 100px;
-    white-space: pre-wrap;
     margin-bottom: 16px;
+    line-height: 1.7;
 }
+
+.answer-box h1, .answer-box h2, .answer-box h3 {
+    margin: 12px 0 8px;
+    font-size: 1.1rem;
+}
+
+.answer-box p { margin: 8px 0; }
+
+.answer-box ul, .answer-box ol {
+    margin: 8px 0;
+    padding-left: 24px;
+}
+
+.answer-box li { margin: 4px 0; }
+
+.answer-box code {
+    background: #e8e8e8;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+.answer-box pre {
+    background: #282c34;
+    color: #abb2bf;
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.answer-box pre code {
+    background: none;
+    padding: 0;
+    color: inherit;
+}
+
+.answer-box blockquote {
+    border-left: 3px solid #1a73e8;
+    padding-left: 12px;
+    color: #555;
+    margin: 8px 0;
+}
+
+.answer-box table { margin: 8px 0; }
+.answer-box strong { color: #222; }
 
 .sources {
     font-size: 0.9rem;
@@ -128,4 +218,40 @@ th { background: #f5f5f5; font-weight: 600; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* ── 图谱页面 ── */
+#graph-container {
+    background: #fafafa;
+}
+
+#detail-panel h3 {
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+}
+
+#detail-panel p {
+    font-size: 0.9rem;
+    color: #555;
+    line-height: 1.5;
+}
+
+#search-results a {
+    display: inline-block;
+    padding: 4px 8px;
+    margin: 2px;
+    background: #e8f0fe;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    text-decoration: none;
+    color: #1a73e8;
+}
+
+#search-results a:hover {
+    background: #c2d9fc;
+}
+
+#chain-result {
+    font-size: 0.85rem;
+    line-height: 1.6;
 }

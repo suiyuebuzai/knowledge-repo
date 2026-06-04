@@ -27,6 +27,10 @@ import retriever
 import chunker
 import embedder
 import store
+import bm25_store
+
+# 启动时从 ChromaDB 重建 BM25 索引
+bm25_store.rebuild_from_chroma()
 
 app = FastAPI(title="Knowledge Web")
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
@@ -146,6 +150,134 @@ async def upload_files(files: list[UploadFile] = File(...)):
     msg = "; ".join(results) if results else ""
     error = "; ".join(errors) if errors else ""
     return RedirectResponse(f"/upload?msg={msg}&error={error}", status_code=303)
+
+
+# ── 图谱路由 ──
+from graph import graph_manager
+from graph import query as graph_query
+
+# 启动时自动从缓存加载图（有缓存则加载，无缓存则跳过）
+graph_manager.load_from_cache()
+
+
+@app.get("/graph")
+async def graph_page(request: Request):
+    return templates.TemplateResponse(request, "graph.html", {
+        "loaded": graph_manager.is_loaded,
+    })
+
+
+@app.get("/graph/api/search")
+async def graph_search(q: str = ""):
+    G = graph_manager.get_graph()
+    if G is None:
+        return {"error": "图数据未加载，请点击刷新数据"}
+    results = graph_query.search_person(G, q.strip()) if q.strip() else []
+    return {"results": results}
+
+
+@app.get("/graph/api/neighbors")
+async def graph_neighbors(id: str, depth: int = 2):
+    G = graph_manager.get_graph()
+    if G is None:
+        return {"error": "图数据未加载，请点击刷新数据"}
+    return graph_query.get_neighbors(G, id, depth)
+
+
+@app.get("/graph/api/chain")
+async def graph_chain(id: str, direction: str = "up"):
+    G = graph_manager.get_graph()
+    if G is None:
+        return {"error": "图数据未加载，请点击刷新数据"}
+    if direction == "up":
+        return {"chain": graph_query.get_superior_chain(G, id)}
+    else:
+        return {"subordinates": graph_query.get_subordinates(G, id, depth=10)}
+
+
+@app.get("/graph/api/path")
+async def graph_path(source: str, target: str):
+    G = graph_manager.get_graph()
+    if G is None:
+        return {"error": "图数据未加载，请点击刷新数据"}
+    path = graph_query.find_path(G, source, target)
+    common = graph_query.find_common_superior(G, source, target)
+    return {"path": path, "common_superior": common}
+
+
+@app.get("/graph/api/dept")
+async def graph_dept(name: str = "", no: str = "", sap: str = ""):
+    G = graph_manager.get_graph()
+    if G is None:
+        return {"error": "图数据未加载，请先在「检索」页面刷新数据"}
+    if no:
+        return {"members": graph_query.get_dept_members_by_no(G, no, sap)}
+    return {"members": graph_query.get_dept_members(G, name)}
+
+
+@app.get("/graph/api/stats")
+async def graph_stats():
+    G = graph_manager.get_graph()
+    if G is None:
+        return {"error": "图数据未加载，请点击刷新数据"}
+    return graph_query.get_stats(G)
+
+
+@app.post("/graph/api/refresh")
+async def graph_refresh():
+    G = graph_manager.refresh()
+    return {"status": "ok", "stats": graph_query.get_stats(G)}
+
+
+from graph.dept_loader import dept_manager
+
+# 启动时从缓存加载部门数据
+dept_manager.load_from_cache()
+
+
+@app.get("/graph/dept-tree")
+async def dept_tree_page(request: Request):
+    return templates.TemplateResponse(request, "dept_tree.html", {
+        "loaded": dept_manager.is_loaded,
+    })
+
+
+@app.get("/graph/api/dept-tree")
+async def dept_tree_data():
+    tree = dept_manager.get_tree()
+    if tree is None:
+        return {"error": "部门数据未加载，请点击刷新数据"}
+    return tree
+
+
+@app.post("/graph/api/dept-tree/refresh")
+async def dept_tree_refresh():
+    tree = dept_manager.refresh()
+    n_div = len(tree.get("children", []))
+    n_dept = sum(len(n.get("children", [])) for n in tree["children"])
+    return {"status": "ok", "divisions": n_div, "departments": n_dept}
+
+
+from graph.nl_query import ask as graph_ask
+
+
+@app.get("/graph/ask")
+async def graph_ask_page(request: Request):
+    return templates.TemplateResponse(request, "graph_ask.html")
+
+
+@app.get("/graph/api/ask")
+async def graph_nl_ask(q: str = ""):
+    if not q.strip():
+        return {"answer": "请输入问题"}
+    G = graph_manager.get_graph()
+    if G is None:
+        return {"error": "图数据未加载，请点击刷新数据"}
+    try:
+        answer = graph_ask(q.strip(), G)
+        return {"answer": answer}
+    except Exception as e:
+        return {"error": f"问答失败: {e}"}
 
 
 if __name__ == "__main__":

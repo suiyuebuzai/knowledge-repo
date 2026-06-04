@@ -3,14 +3,17 @@ import store
 import retriever
 import embedder
 import config
+import bm25_store
 
 
 @pytest.fixture(autouse=True)
 def temp_chroma(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CHROMA_DIR", str(tmp_path / "chroma"))
     store._collection = None
+    bm25_store.clear()
     yield
     store._collection = None
+    bm25_store.clear()
 
 
 def test_retriever_search_returns_results():

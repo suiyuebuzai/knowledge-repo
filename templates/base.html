@@ -7,12 +7,26 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <nav>
-        <a href="/" {% if active == "ask" %}class="active"{% endif %}>问答</a>
-        <a href="/search" {% if active == "search" %}class="active"{% endif %}>检索</a>
-        <a href="/upload" {% if active == "upload" %}class="active"{% endif %}>上传</a>
-    </nav>
-    {% block content %}{% endblock %}
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="sidebar-title">Knowledge</div>
+            <div class="menu-section">
+                <div class="menu-heading">知识库</div>
+                <a href="/" {% if active == "ask" %}class="active"{% endif %}>问知识</a>
+                <a href="/search" {% if active == "search" %}class="active"{% endif %}>搜文档</a>
+                <a href="/upload" {% if active == "upload" %}class="active"{% endif %}>传文件</a>
+            </div>
+            <div class="menu-section">
+                <div class="menu-heading">组织架构</div>
+                <a href="/graph" {% if active == "graph" %}class="active"{% endif %}>查关系</a>
+                <a href="/graph/ask" {% if active == "graph_ask" %}class="active"{% endif %}>问组织</a>
+                <a href="/graph/dept-tree" {% if active == "dept_tree" %}class="active"{% endif %}>看部门</a>
+            </div>
+        </aside>
+        <main class="content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
     {% block scripts %}{% endblock %}
 </body>
 </html>

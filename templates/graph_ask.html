@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% set active = "graph_ask" %}
+{% block title %}问组织 - Knowledge{% endblock %}
+{% block content %}
+<h1>问组织</h1>
+<p style="color:#666; font-size:0.9rem;">用自然语言提问，AI 自动查询组织关系图回答。</p>
+
+<div class="form-group">
+    <input type="text" id="question" placeholder="例如：张三的直属上级是谁？技术部有多少人？" autofocus>
+    <button id="ask-btn" onclick="doAsk()">提问</button>
+</div>
+
+<div class="answer-box" id="answer">等待提问...</div>
+
+<div style="margin-top:16px; font-size:0.85rem; color:#666;">
+    <strong>示例问题：</strong>
+    <ul>
+        <li>XX 的直属上级是谁？</li>
+        <li>XX 和 YY 的共同上级是谁？</li>
+        <li>从 XX 到 YY 经过几级汇报？</li>
+        <li>XX 部门有多少人？</li>
+        <li>公司目前有多少在职人员？</li>
+    </ul>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/marked.min.js"></script>
+<script>
+async function doAsk() {
+    const q = document.getElementById('question').value.trim();
+    if (!q) return;
+
+    const answerEl = document.getElementById('answer');
+    const btn = document.getElementById('ask-btn');
+    answerEl.innerHTML = '<em>思考中...</em>';
+    btn.disabled = true;
+
+    try {
+        const resp = await fetch('/graph/api/ask?q=' + encodeURIComponent(q));
+        const data = await resp.json();
+        const text = data.answer || data.error || '无法回答';
+        answerEl.innerHTML = marked.parse(text);
+    } catch(e) {
+        answerEl.innerHTML = marked.parse('**请求失败:** ' + e.message);
+    }
+    btn.disabled = false;
+}
+
+document.getElementById('question').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doAsk();
+});
+</script>
+{% endblock %}

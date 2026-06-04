@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% set active = "ask" %}
-{% block title %}问答 - Knowledge{% endblock %}
+{% block title %}问知识 - Knowledge{% endblock %}
 {% block content %}
-<h1>知识库问答</h1>
+<h1>问知识</h1>
 <div class="form-group">
     <input type="text" id="question" placeholder="输入你的问题..." autofocus>
     <button id="ask-btn" onclick="doAsk()">提问</button>
@@ -12,7 +12,15 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/marked.min.js"></script>
 <script>
+var _md = '';
+
+function renderMd(text) {
+    try { return marked.parse(text); }
+    catch(e) { return '<pre>' + text.replace(/</g,'&lt;') + '</pre>'; }
+}
+
 function doAsk() {
     var q = document.getElementById('question').value.trim();
     if (!q) return;
@@ -21,7 +29,8 @@ function doAsk() {
     var sourcesEl = document.getElementById('sources');
     var btn = document.getElementById('ask-btn');
 
-    answerEl.textContent = '';
+    _md = '';
+    answerEl.innerHTML = '<em>思考中...</em>';
     sourcesEl.innerHTML = '';
     sourcesEl.style.display = 'none';
     btn.disabled = true;
@@ -29,7 +38,8 @@ function doAsk() {
     var es = new EventSource('/ask/stream?q=' + encodeURIComponent(q));
 
     es.onmessage = function(e) {
-        answerEl.textContent += e.data;
+        _md += e.data;
+        answerEl.innerHTML = renderMd(_md);
     };
 
     es.addEventListener('sources', function(e) {
@@ -45,7 +55,8 @@ function doAsk() {
 
     es.addEventListener('error', function(e) {
         if (e.data) {
-            answerEl.textContent += '\n\n[错误: ' + e.data + ']';
+            _md += '\n\n**错误:** ' + e.data;
+            answerEl.innerHTML = renderMd(_md);
         }
         es.close();
         btn.disabled = false;
@@ -54,6 +65,7 @@ function doAsk() {
     es.addEventListener('done', function(e) {
         es.close();
         btn.disabled = false;
+        answerEl.innerHTML = renderMd(_md);
     });
 }
 

@@ -26,3 +26,7 @@ docs_input/*.txt
 # Environment
 .env
 .env.*
+
+# Graph cache
+graph/.employees_cache.json
+graph/.departments_cache.json

@@ -1,6 +1,7 @@
 import pytest
 import store
 import embedder
+import bm25_store
 
 
 @pytest.fixture(autouse=True)
@@ -9,8 +10,10 @@ def temp_chroma(tmp_path, monkeypatch):
     import config
     monkeypatch.setattr(config, "CHROMA_DIR", str(tmp_path / "chroma"))
     store._collection = None
+    bm25_store.clear()
     yield
     store._collection = None
+    bm25_store.clear()
 
 
 def test_upsert_and_count():

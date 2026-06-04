@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% set active = "graph" %}
+{% block title %}查关系 - Knowledge{% endblock %}
+{% block content %}
+<h1>查关系</h1>
+
+<div class="form-group">
+    <input type="text" id="search-input" placeholder="输入姓名或工号搜索..." autofocus>
+    <button onclick="doSearch()">搜索</button>
+    <button onclick="refreshGraph()" id="refresh-btn">刷新数据</button>
+</div>
+
+<div id="status-bar" style="font-size:0.85rem; color:#666; margin-bottom:8px;">
+    {% if loaded %}数据已加载{% else %}暂无数据，请点击"刷新数据"从服务器获取{% endif %}
+</div>
+
+<div id="search-results" style="display:none; margin-bottom:12px;"></div>
+
+<div style="display:flex; gap:12px;">
+    <div id="graph-container" style="flex:1; height:600px; border:1px solid #ddd; border-radius:8px;"></div>
+    <div id="detail-panel" style="width:250px; padding:12px; background:#f8f9fa; border-radius:8px; display:none;">
+        <h3 id="detail-name"></h3>
+        <p id="detail-info"></p>
+        <div style="margin-top:12px;">
+            <button onclick="showChain()" style="font-size:0.85rem;">上级链</button>
+            <button onclick="promptPath()" style="font-size:0.85rem;">查找路径</button>
+        </div>
+        <div id="chain-result" style="margin-top:8px; font-size:0.85rem;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<script src="/static/graph.js"></script>
+{% endblock %}
