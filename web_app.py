@@ -280,6 +280,89 @@ async def graph_nl_ask(q: str = ""):
         return {"error": f"问答失败: {e}"}
 
 
+# ── 找文档路由 ──
+from ingest import find_documents, _fmt_size as _find_fmt_size
+from datetime import datetime as _dt
+
+
+@app.get("/find")
+async def find_page(request: Request):
+    return templates.TemplateResponse(request, "find.html", {
+        "default_dir": config.DOCS_DIR,
+    })
+
+
+@app.get("/find/api/scan")
+async def find_scan(
+    dir: str = config.DOCS_DIR,
+    query: str = "",
+    ext: str = ".pdf,.docx,.txt,.md",
+    recursive: bool = True,
+):
+    root = Path(dir)
+    if not root.exists():
+        return {"error": f"目录不存在：{dir}"}
+    if not root.is_dir():
+        return {"error": f"路径不是目录：{dir}"}
+
+    extensions = {e.strip() for e in ext.split(",") if e.strip()}
+    files = find_documents(
+        root_dir=dir,
+        extensions=extensions,
+        query=query or None,
+        recursive=recursive,
+    )
+
+    root_resolved = root.resolve()
+    result = []
+    for f in files:
+        try:
+            stat = f.stat()
+            try:
+                rel = str(f.relative_to(root_resolved))
+            except ValueError:
+                rel = str(f)
+            result.append({
+                "name": f.name,
+                "ext": f.suffix.upper(),
+                "size": _find_fmt_size(stat.st_size),
+                "mtime": _dt.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
+                "rel_path": rel,
+                "abs_path": str(f),
+            })
+        except Exception:
+            continue
+
+    return {"total": len(result), "files": result}
+
+
+@app.post("/find/api/index")
+async def find_index(request: Request):
+    body = await request.json()
+    file_paths = body.get("files", [])
+
+    def generate():
+        total = len(file_paths)
+        success = 0
+        failed = 0
+        for abs_path in file_paths:
+            fname = Path(abs_path).name
+            yield f"data: {json.dumps({'file': fname, 'status': 'indexing'}, ensure_ascii=False)}\n\n"
+            try:
+                chunks = chunker.load_and_chunk(abs_path)
+                texts = [c["text"] for c in chunks]
+                embeddings = embedder.embed(texts)
+                store.upsert(chunks, embeddings)
+                success += 1
+                yield f"data: {json.dumps({'file': fname, 'status': 'done', 'chunks': len(chunks)}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                failed += 1
+                yield f"data: {json.dumps({'file': fname, 'status': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+        yield f"event: done\ndata: {json.dumps({'total': total, 'success': success, 'failed': failed}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("KNOWLEDGE_WEB_PORT", config.WEB_PORT))
