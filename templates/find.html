@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% set active = "find" %}
+{% block title %}找文档 - Knowledge{% endblock %}
+{% block content %}
+<h1>找文档</h1>
+
+<div class="find-controls">
+    <div class="form-group">
+        <input type="text" id="dir" value="{{ default_dir }}" placeholder="目录路径，如 C:/1AI/docs">
+        <button id="scan-btn" onclick="doScan()">扫描</button>
+    </div>
+    <div class="find-filters">
+        <label>文件名关键词：<input type="text" id="query" placeholder="模糊过滤..." style="width:160px;flex:none;"></label>
+        <label><input type="checkbox" id="recursive" checked> 递归子目录</label>
+        <span class="filter-label">扩展名：</span>
+        <label><input type="checkbox" class="ext-cb" value=".pdf" checked> PDF</label>
+        <label><input type="checkbox" class="ext-cb" value=".docx" checked> DOCX</label>
+        <label><input type="checkbox" class="ext-cb" value=".txt" checked> TXT</label>
+        <label><input type="checkbox" class="ext-cb" value=".md" checked> MD</label>
+    </div>
+</div>
+
+<div id="results"></div>
+
+<div id="progress-area" style="display:none;">
+    <h3 style="margin:16px 0 8px;">索引进度</h3>
+    <ul id="progress-list" class="progress-list"></ul>
+    <p id="progress-summary" class="progress-summary"></p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function doScan() {
+    const dir = document.getElementById('dir').value.trim();
+    const query = document.getElementById('query').value.trim();
+    const exts = Array.from(document.querySelectorAll('.ext-cb:checked')).map(cb => cb.value);
+    const recursive = document.getElementById('recursive').checked;
+    if (!dir) return;
+
+    const btn = document.getElementById('scan-btn');
+    btn.disabled = true;
+    document.getElementById('results').innerHTML = '<p style="color:#888;margin-top:12px;">扫描中...</p>';
+    document.getElementById('progress-area').style.display = 'none';
+
+    const params = new URLSearchParams({
+        dir, query,
+        ext: exts.join(',') || '.pdf,.docx,.txt,.md',
+        recursive,
+    });
+    try {
+        const resp = await fetch('/find/api/scan?' + params);
+        const data = await resp.json();
+        if (data.error) {
+            document.getElementById('results').innerHTML =
+                `<div class="message message-error">${escapeHtml(data.error)}</div>`;
+        } else {
+            renderResults(data);
+        }
+    } catch (e) {
+        document.getElementById('results').innerHTML =
+            `<div class="message message-error">扫描失败：${escapeHtml(e.message)}</div>`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function renderResults(data) {
+    if (data.total === 0) {
+        document.getElementById('results').innerHTML =
+            '<div class="message message-error">未找到符合条件的文件</div>';
+        return;
+    }
+    const rows = data.files.map((f, i) => `
+        <tr>
+            <td><input type="checkbox" class="file-checkbox" value="${escapeHtml(f.abs_path)}" onchange="updateCount()"></td>
+            <td>${i + 1}</td>
+            <td>${escapeHtml(f.name)}</td>
+            <td><code>${escapeHtml(f.ext)}</code></td>
+            <td>${escapeHtml(f.size)}</td>
+            <td>${escapeHtml(f.mtime)}</td>
+            <td class="chunk-text" title="${escapeHtml(f.rel_path)}">${escapeHtml(f.rel_path)}</td>
+        </tr>`).join('');
+
+    document.getElementById('results').innerHTML = `
+        <div class="find-toolbar">
+            <span>找到 <strong>${data.total}</strong> 个文件</span>
+            <button type="button" onclick="selectAll(true)">全选</button>
+            <button type="button" onclick="selectAll(false)">取消全选</button>
+            <button type="button" id="index-btn" onclick="doIndex()" disabled>索引选中 (0)</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th><input type="checkbox" id="check-all" onchange="selectAll(this.checked)"></th>
+                    <th>#</th><th>文件名</th><th>类型</th><th>大小</th><th>修改时间</th><th>相对路径</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+}
+
+function selectAll(checked) {
+    document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = checked);
+    const ca = document.getElementById('check-all');
+    if (ca) ca.checked = checked;
+    updateCount();
+}
+
+function updateCount() {
+    const checked = document.querySelectorAll('.file-checkbox:checked').length;
+    const total   = document.querySelectorAll('.file-checkbox').length;
+    const btn = document.getElementById('index-btn');
+    if (btn) { btn.textContent = `索引选中 (${checked})`; btn.disabled = checked === 0; }
+    const ca = document.getElementById('check-all');
+    if (ca) { ca.checked = checked === total && total > 0; ca.indeterminate = checked > 0 && checked < total; }
+}
+
+const _progMap = {};
+
+async function doIndex() {
+    const paths = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => cb.value);
+    if (!paths.length) return;
+
+    const area    = document.getElementById('progress-area');
+    const list    = document.getElementById('progress-list');
+    const summary = document.getElementById('progress-summary');
+    area.style.display = 'block';
+    list.innerHTML = '';
+    summary.textContent = '';
+    Object.keys(_progMap).forEach(k => delete _progMap[k]);
+    document.getElementById('index-btn').disabled = true;
+
+    try {
+        const resp = await fetch('/find/api/index', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({files: paths}),
+        });
+        const reader  = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '', currentEvent = '';
+
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, {stream: true});
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+                if (line.startsWith('event: ')) {
+                    currentEvent = line.slice(7).trim();
+                } else if (line.startsWith('data: ')) {
+                    const d = JSON.parse(line.slice(6));
+                    if (currentEvent === 'done') {
+                        summary.textContent = `完成：${d.success} 成功，${d.failed} 失败`;
+                    } else {
+                        handleProgress(d);
+                    }
+                    currentEvent = '';
+                }
+            }
+        }
+    } catch (e) {
+        document.getElementById('progress-summary').textContent = `索引失败：${e.message}`;
+    }
+    document.getElementById('index-btn').disabled = false;
+    updateCount();
+}
+
+function handleProgress(d) {
+    const list = document.getElementById('progress-list');
+    if (d.status === 'indexing') {
+        const li = document.createElement('li');
+        li.textContent = `⏳ ${d.file}`;
+        list.appendChild(li);
+        _progMap[d.file] = li;
+    } else if (d.status === 'done') {
+        const li = _progMap[d.file];
+        if (li) { li.textContent = `✓ ${d.file} — ${d.chunks} 个片段`; li.className = 'prog-done'; }
+    } else if (d.status === 'error') {
+        const li = _progMap[d.file];
+        if (li) { li.textContent = `✗ ${d.file} — ${d.error}`; li.className = 'prog-error'; }
+    }
+}
+
+document.getElementById('dir').addEventListener('keydown', e => { if (e.key === 'Enter') doScan(); });
+</script>
+{% endblock %}
