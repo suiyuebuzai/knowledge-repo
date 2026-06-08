@@ -38,6 +38,7 @@
 | `templates/ask.html` | 问知识（输入框 + SSE 流式展示区 + Markdown 渲染） |
 | `templates/search.html` | 搜文档（搜索框 + 结果表格） |
 | `templates/upload.html` | 传文件（文件选择 + 已索引列表） |
+| `templates/find.html` | 找文档（目录扫描控制 + 文件表格 + 索引进度） |
 | `templates/graph.html` | 查关系（vis.js 力导向图） |
 | `templates/graph_ask.html` | 问组织（自然语言问答 + Markdown 渲染） |
 | `templates/dept_tree.html` | 看部门（D3 部门层级树形图） |
@@ -1912,6 +1913,47 @@ git commit -m "fix: polish knowledge web app"
 
 ---
 
+## Part 6: 找文档页面
+
+**Status:** 已完成 (2026-06-08)
+
+**Goal:** 在 Web App 中新增「找文档」页面，让用户通过浏览器扫描本机任意目录，勾选文件后一键批量索引进知识库。
+
+**Architecture:** 复用 `ingest.py` 中的 `find_documents()` 和 `_fmt_size()`；新增 3 个路由到 `web_app.py`；`POST /find/api/index` 用 SSE 流逐文件播报进度；前端全 AJAX（fetch + ReadableStream 消费 POST SSE）。
+
+### File Map
+
+| 文件 | 改动 |
+|------|------|
+| `web_app.py` | 追加 GET /find、GET /find/api/scan、POST /find/api/index 路由 |
+| `templates/find.html` | 新建，含扫描控制、文件表格、全选/勾选、索引进度 JS |
+| `templates/base.html` | 侧边栏「知识库」分组新增「找文档」入口 |
+| `static/style.css` | 追加 .find-controls/.find-filters/.find-toolbar/.progress-list 等样式 |
+
+### Task 28: 后端路由
+
+- [x] 追加 `from ingest import find_documents, _fmt_size as _find_fmt_size` 及 `datetime` 导入
+- [x] 实现 `GET /find` → 渲染 find.html，注入 `default_dir`
+- [x] 实现 `GET /find/api/scan` → 目录存在性校验 + 调用 `find_documents()` + 序列化元数据返回 JSON
+- [x] 实现 `POST /find/api/index` → 遍历文件 `chunker→embedder→store.upsert`，SSE 逐文件播报 `{file, status, chunks/error}` + `event: done`
+- [x] 验证 scan/index 接口（TestClient），Commit
+
+### Task 29: find.html 模板
+
+- [x] 创建 `templates/find.html`（继承 base.html，active="find"）
+- [x] 实现 `doScan()`：fetch scan API，动态渲染文件表格
+- [x] 实现 `renderResults()`：生成含 checkbox 的表格，「索引选中 (N)」动态更新
+- [x] 实现 `doIndex()`：fetch POST SSE，ReadableStream 逐行解析，`handleProgress()` 实时更新进度行
+- [x] 验证页面渲染（TestClient），Commit
+
+### Task 30: 导航 + 样式
+
+- [x] `base.html` 知识库分组加「找文档」链接（active="find"）
+- [x] `style.css` 追加 find 专用样式（过滤器行、工具栏、进度列表、进度色）
+- [x] 验证导航高亮，运行 55 个测试全部 PASS，Commit
+
+---
+
 ## 快速参考
 
 ```bash
@@ -1939,6 +1981,7 @@ C:/1AI/.pvenv/Scripts/python.exe -m pytest tests/ -v
 # http://localhost:8080/              问知识（文档问答，混合检索 + Claude 流式生成）
 # http://localhost:8080/search        搜文档（混合检索，向量+BM25）
 # http://localhost:8080/upload        传文件（文档上传 + 自动索引）
+# http://localhost:8080/find          找文档（目录扫描 + 勾选索引）
 # http://localhost:8080/graph         查关系（图谱可视化）
 # http://localhost:8080/graph/ask     问组织（图谱问答）
 # http://localhost:8080/graph/dept-tree  看部门（部门层级）
