@@ -12,11 +12,20 @@
     <div class="find-filters">
         <label>文件名关键词：<input type="text" id="query" placeholder="模糊过滤..." style="width:160px;flex:none;"></label>
         <label><input type="checkbox" id="recursive" checked> 递归子目录</label>
-        <span class="filter-label">扩展名：</span>
+        <span class="filter-label">文档：</span>
         <label><input type="checkbox" class="ext-cb" value=".pdf" checked> PDF</label>
         <label><input type="checkbox" class="ext-cb" value=".docx" checked> DOCX</label>
         <label><input type="checkbox" class="ext-cb" value=".txt" checked> TXT</label>
         <label><input type="checkbox" class="ext-cb" value=".md" checked> MD</label>
+        <span class="filter-label">表格：</span>
+        <label><input type="checkbox" class="ext-cb" value=".xlsx" checked> XLSX</label>
+        <label><input type="checkbox" class="ext-cb" value=".xls" checked> XLS</label>
+        <label><input type="checkbox" class="ext-cb" value=".csv" checked> CSV</label>
+        <span class="filter-label">演示：</span>
+        <label><input type="checkbox" class="ext-cb" value=".pptx" checked> PPTX</label>
+        <span class="filter-label">网页：</span>
+        <label><input type="checkbox" class="ext-cb" value=".html" checked> HTML</label>
+        <label><input type="checkbox" class="ext-cb" value=".htm" checked> HTM</label>
     </div>
 </div>
 
@@ -51,7 +60,7 @@ async function doScan() {
 
     const params = new URLSearchParams({
         dir, query,
-        ext: exts.join(',') || '.pdf,.docx,.txt,.md',
+        ext: exts.join(',') || '.pdf,.docx,.txt,.md,.xlsx,.xls,.pptx,.csv,.html,.htm',
         recursive,
     });
     try {
@@ -160,6 +169,9 @@ async function doIndex() {
                     const d = JSON.parse(line.slice(6));
                     if (currentEvent === 'done') {
                         summary.textContent = `完成：${d.success} 成功，${d.failed} 失败`;
+                        if (d.total > 0) {
+                            alert(`索引完成\n✓ 成功：${d.success} 个文件\n✗ 失败：${d.failed} 个文件`);
+                        }
                     } else {
                         handleProgress(d);
                     }
