@@ -130,7 +130,9 @@ async def upload_files(files: list[UploadFile] = File(...)):
 
     for file in files:
         suffix = Path(file.filename).suffix.lower()
-        if suffix not in {".pdf", ".docx", ".txt"}:
+        if suffix not in {".pdf", ".docx", ".txt", ".md",
+                          ".xlsx", ".xls", ".pptx",
+                          ".csv", ".html", ".htm"}:
             errors.append(f"{file.filename}: 不支持的格式")
             continue
 
@@ -296,7 +298,7 @@ async def find_page(request: Request):
 async def find_scan(
     dir: str = config.DOCS_DIR,
     query: str = "",
-    ext: str = ".pdf,.docx,.txt,.md",
+    ext: str = ".pdf,.docx,.txt,.md,.xlsx,.xls,.pptx,.csv,.html,.htm",
     recursive: bool = True,
 ):
     root = Path(dir)
