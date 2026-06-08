@@ -1922,6 +1922,10 @@ git commit -m "fix: polish knowledge web app"
 
 **Architecture:** 复用 `ingest.py` 中的 `find_documents()` 和 `_fmt_size()`；新增 3 个路由到 `web_app.py`；`POST /find/api/index` 用 SSE 流逐文件播报进度；前端全 AJAX（fetch + ReadableStream 消费 POST SSE）。
 
+**Tech Stack:** FastAPI + Jinja2（已有）, StreamingResponse（已有）, 原生 JS Fetch API + ReadableStream（消费 POST SSE）
+
+**源计划：** `docs/superpowers/plans/2026-06-08-find-page.md`（Task 1: GET /find + scan API，Task 2: POST /find/api/index SSE，Task 3: find.html 模板，Task 4: 导航 + 样式，Task 5: 端到端验证）
+
 ### File Map
 
 | 文件 | 改动 |
@@ -1931,12 +1935,11 @@ git commit -m "fix: polish knowledge web app"
 | `templates/base.html` | 侧边栏「知识库」分组新增「找文档」入口 |
 | `static/style.css` | 追加 .find-controls/.find-filters/.find-toolbar/.progress-list 等样式 |
 
-### Task 28: 后端路由
+### Task 28: 后端路由 — 扫描 API + 索引 SSE（计划 Task 1+2）
 
 - [x] 追加 `from ingest import find_documents, _fmt_size as _find_fmt_size` 及 `datetime` 导入
-- [x] 实现 `GET /find` → 渲染 find.html，注入 `default_dir`
-- [x] 实现 `GET /find/api/scan` → 目录存在性校验 + 调用 `find_documents()` + 序列化元数据返回 JSON
-- [x] 实现 `POST /find/api/index` → 遍历文件 `chunker→embedder→store.upsert`，SSE 逐文件播报 `{file, status, chunks/error}` + `event: done`
+- [x] **Task 1 — GET /find + GET /find/api/scan：** `GET /find` 渲染 find.html 并注入 `default_dir`；`GET /find/api/scan` 校验目录存在性，调用 `find_documents()`，返回 `{total, files[{name, ext, size, mtime, rel_path, abs_path}]}`
+- [x] **Task 2 — POST /find/api/index（SSE）：** 遍历文件列表，逐文件 `chunker→embedder→store.upsert`，SSE 播报 `{file, status: indexing/done/error, chunks?}` + `event: done` 汇总行
 - [x] 验证 scan/index 接口（TestClient），Commit
 
 ### Task 29: find.html 模板
@@ -1948,13 +1951,12 @@ git commit -m "fix: polish knowledge web app"
 - [x] 验证页面渲染（TestClient），Commit
 - [x] 格式扩展后更新：扩展名复选框按类型分组（文档/表格/演示/网页），`event: done` 时触发 `alert()` 完成弹窗
 
-### Task 30: 导航 + 样式
+### Task 30: 导航 + 样式 + 端到端验证（计划 Task 4+5）
 
 - [x] `base.html` 知识库分组加「找文档」链接（active="find"）
 - [x] `style.css` 追加 find 专用样式（过滤器行、工具栏、进度列表、进度色）
 - [x] 验证导航高亮，运行 55 个测试全部 PASS，Commit
-
----
+- [x] 端到端验证（计划 Task 5）：浏览器访问 `/find`，扫描目录，勾选文件，一键索引 → 去「搜文档」页确认内容可被检索到；验证原有 ask/search/upload/graph 功能无回归
 
 ---
 
@@ -1967,6 +1969,8 @@ git commit -m "fix: polish knowledge web app"
 **Architecture:** 在 `chunker.py` 中新增 6 个 `_load_*` 函数（Excel/PPT 采用结构感知提取），`load_and_chunk()` 改为 dispatch dict；`ingest.py` `SUPPORTED`/`FIND_SUPPORTED` 完全对齐；`web_app.py` 上传白名单和 `find_scan` 默认 ext 同步更新；两个 HTML 模板同步更新。
 
 **Tech Stack:** `openpyxl`（xlsx 读取）, `xlrd`（xls 读取）, `python-pptx`（pptx 读取）, stdlib `csv` + `html.parser`（内置）
+
+**源计划：** `docs/superpowers/plans/2026-06-08-format-expansion.md`（Task 1: 依赖安装，Task 2: chunker TDD，Task 3: ingest 常量 TDD，Task 4: web_app.py 白名单，Task 5: upload.html，Task 6: find.html 分组 checkbox + alert，Task 7: 端到端验证）
 
 ### File Map
 
@@ -2005,14 +2009,19 @@ git commit -m "fix: polish knowledge web app"
 - [x] 更新 `ingest_directory()` 警告消息（动态列出格式）
 - [x] 2 个测试通过，Commit
 
-### Task 34: web_app.py + 模板更新
+### Task 34: web_app.py + upload.html + find.html 更新（计划 Task 4~6）
 
-- [x] 上传路由后缀白名单扩展为 10 种格式
-- [x] `find_scan` 默认 `ext` 参数扩展为 10 种格式
-- [x] `templates/upload.html`：更新 `accept` + 格式提示 `<small>`
-- [x] `templates/find.html`：扩展名 checkbox 按类型分组（文档/表格/演示/网页）
-- [x] `templates/find.html`：`doIndex()` 的 `event: done` 处理块追加 `alert()` 弹窗
-- [x] 非 ML 测试全部通过（36 passed, 1 skipped），Commit
+- [x] **Task 4 — web_app.py：** 上传路由后缀白名单扩展为 10 种格式；`find_scan` 默认 `ext` 参数同步扩展
+- [x] **Task 5 — upload.html：** `accept` 属性扩展为全部 10 种后缀；追加 `<small>` 格式提示文字
+- [x] **Task 6 — find.html：** 扩展名 checkbox 按类型分组（文档/表格/演示/网页）；`doScan()` ext fallback 同步更新；`doIndex()` `event: done` 追加 `alert()` 完成弹窗
+- [x] 非 ML 测试全部通过，Commit
+
+### Task 35: 端到端验证（计划 Task 7）
+
+- [x] 运行全套非 ML 测试：`pytest tests/test_chunker.py tests/test_ingest_formats.py tests/test_bm25_store.py tests/test_query.py -v`
+- [x] 验证 `ingest.SUPPORTED` 包含全部 10 种格式，`len(SUPPORTED) == 10`
+- [x] 烟测：`from chunker import load_and_chunk` + `from ingest import SUPPORTED` 可正常导入，dispatch dict 含 10 个 loader
+- [x] 最终结果：36 passed, 1 skipped（`test_load_xls`，xlwt 未安装 — 预期行为）
 
 ---
 
