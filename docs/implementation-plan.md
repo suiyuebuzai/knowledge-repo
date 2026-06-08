@@ -6,7 +6,7 @@
 
 **Architecture:** 混合 RAG 流水线（向量语义 + BM25 关键词 → RRF 融合）+ NetworkX 图谱模块 + lakehouse 双形态模块（函数 + MCP）。文档索引：chunker → embedder → ChromaDB + BM25 索引；图谱：lakehouse API → 本地 JSON 缓存 → MultiDiGraph → 图查询/NL 问答；lakehouse：共享 API 客户端供内部模块和外部 Agent 使用。Web App (FastAPI) 左右布局，统一提供 HTML 页面和 JSON API。
 
-**Tech Stack:** `sentence-transformers`（本地 Embedding）, `chromadb`（向量数据库）, `rank_bm25` + `jieba`（BM25 关键词检索）, `pypdf`（PDF 解析）, `python-docx`（Word 解析）, `mcp[cli]` + `FastMCP`（MCP Server）, `anthropic` SDK（RAG + NL 问答）, `fastapi` + `uvicorn` + `jinja2`（Web App）, `networkx`（图数据结构）, `httpx`（API 调用）, `vis-network` CDN（图谱可视化）
+**Tech Stack:** `sentence-transformers`（本地 Embedding）, `chromadb`（向量数据库）, `rank_bm25` + `jieba`（BM25 关键词检索）, `pypdf`（PDF 解析）, `python-docx`（Word 解析）, `openpyxl`（.xlsx）, `xlrd`（.xls）, `python-pptx`（.pptx）, `mcp[cli]` + `FastMCP`（MCP Server）, `anthropic` SDK（RAG + NL 问答）, `fastapi` + `uvicorn` + `jinja2`（Web App）, `networkx`（图数据结构）, `httpx`（API 调用）, `vis-network` CDN（图谱可视化）
 
 ---
 
@@ -54,6 +54,7 @@
 | `tests/test_hybrid_retriever.py` | 混合检索集成测试 |
 | `tests/test_builder.py` | graph builder 单元测试 |
 | `tests/test_query.py` | graph query 单元测试 |
+| `tests/test_ingest_formats.py` | SUPPORTED/FIND_SUPPORTED 常量覆盖验证 |
 
 ---
 
@@ -1945,12 +1946,73 @@ git commit -m "fix: polish knowledge web app"
 - [x] 实现 `renderResults()`：生成含 checkbox 的表格，「索引选中 (N)」动态更新
 - [x] 实现 `doIndex()`：fetch POST SSE，ReadableStream 逐行解析，`handleProgress()` 实时更新进度行
 - [x] 验证页面渲染（TestClient），Commit
+- [x] 格式扩展后更新：扩展名复选框按类型分组（文档/表格/演示/网页），`event: done` 时触发 `alert()` 完成弹窗
 
 ### Task 30: 导航 + 样式
 
 - [x] `base.html` 知识库分组加「找文档」链接（active="find"）
 - [x] `style.css` 追加 find 专用样式（过滤器行、工具栏、进度列表、进度色）
 - [x] 验证导航高亮，运行 55 个测试全部 PASS，Commit
+
+---
+
+---
+
+## Part 7: 文档格式扩展
+
+**Status:** 已完成 (2026-06-08)
+
+**Goal:** 将支持的文档格式从 3 种（.pdf/.docx/.txt）扩展到 10 种，新增 .md / .xlsx / .xls / .pptx / .csv / .html / .htm；索引完成后在「找文档」页面添加 alert() 弹窗提示。
+
+**Architecture:** 在 `chunker.py` 中新增 6 个 `_load_*` 函数（Excel/PPT 采用结构感知提取），`load_and_chunk()` 改为 dispatch dict；`ingest.py` `SUPPORTED`/`FIND_SUPPORTED` 完全对齐；`web_app.py` 上传白名单和 `find_scan` 默认 ext 同步更新；两个 HTML 模板同步更新。
+
+**Tech Stack:** `openpyxl`（xlsx 读取）, `xlrd`（xls 读取）, `python-pptx`（pptx 读取）, stdlib `csv` + `html.parser`（内置）
+
+### File Map
+
+| 文件 | 改动 |
+|------|------|
+| `chunker.py` | 新增 `_load_md/xlsx/xls/pptx/csv/html`，`load_and_chunk()` 改为 dispatch dict |
+| `ingest.py` | `SUPPORTED` / `FIND_SUPPORTED` 扩展为 10 种格式，完全对齐 |
+| `web_app.py` | 上传后缀白名单 + `find_scan` 默认 ext 同步更新 |
+| `templates/upload.html` | `accept` 属性 + 格式提示文字 |
+| `templates/find.html` | 扩展名 checkbox 按类型分组 + `alert()` 弹窗 |
+| `tests/test_chunker.py` | 追加 6 个新 loader 测试 + `test_load_and_chunk_new_formats` |
+| `tests/test_ingest_formats.py` | 新建：验证 SUPPORTED/FIND_SUPPORTED 包含所有新格式 |
+
+### Task 31: 安装依赖
+
+- [x] `pip install openpyxl xlrd python-pptx`（实际均已预装）
+- [x] 验证 import OK
+
+### Task 32: chunker.py 新增格式（TDD）
+
+- [x] 追加 7 个失败测试（`test_load_md/xlsx/xls/pptx/csv/html` + `test_load_and_chunk_new_formats`）
+- [x] 运行确认失败
+- [x] 实现 `_load_md`（复用 `_load_txt`）
+- [x] 实现 `_load_xlsx`（openpyxl，Sheet名前缀 + 字段:值格式）
+- [x] 实现 `_load_xls`（xlrd，同上格式）
+- [x] 实现 `_load_pptx`（python-pptx，幻灯片标题前缀）
+- [x] 实现 `_load_csv`（stdlib csv，字段:值格式，自动探测分隔符）
+- [x] 实现 `_load_html`（html.parser，过滤 script/style，保留块级换行）
+- [x] `load_and_chunk()` 改为 dispatch dict（10 个格式）
+- [x] 11 个测试通过，1 个跳过（test_load_xls，xlwt 未安装），Commit
+
+### Task 33: ingest.py 常量更新（TDD）
+
+- [x] 新建 `tests/test_ingest_formats.py`（2 个失败测试）
+- [x] 更新 `SUPPORTED` / `FIND_SUPPORTED` 为全部 10 种格式
+- [x] 更新 `ingest_directory()` 警告消息（动态列出格式）
+- [x] 2 个测试通过，Commit
+
+### Task 34: web_app.py + 模板更新
+
+- [x] 上传路由后缀白名单扩展为 10 种格式
+- [x] `find_scan` 默认 `ext` 参数扩展为 10 种格式
+- [x] `templates/upload.html`：更新 `accept` + 格式提示 `<small>`
+- [x] `templates/find.html`：扩展名 checkbox 按类型分组（文档/表格/演示/网页）
+- [x] `templates/find.html`：`doIndex()` 的 `event: done` 处理块追加 `alert()` 弹窗
+- [x] 非 ML 测试全部通过（36 passed, 1 skipped），Commit
 
 ---
 

@@ -1,8 +1,8 @@
 # Knowledge 项目完整设计文档
 
-**创建时间：** 2026-05-27（MCP Server）/ 2026-06-02（Web App + 组织图谱）/ 2026-06-03（lakehouse 模块 + UI 重构 + 混合检索）/ 2026-06-08（找文档页面）  
-**状态：** MCP Server ✅ / Web App ✅ / 组织图谱 ✅ / Lakehouse 模块 ✅ / 混合检索 ✅ / 找文档页面 ✅  
-**定位：** 统一知识服务平台，支持 Agent Function Calling / MCP 和 Web API 两种访问形式。包含非结构化文档混合检索（向量语义 + BM25 关键词，RRF 融合）、组织关系图谱（图查询 + NL 问答）、数据湖仓查询（Lakehouse API）等知识模块。
+**创建时间：** 2026-05-27（MCP Server）/ 2026-06-02（Web App + 组织图谱）/ 2026-06-03（lakehouse 模块 + UI 重构 + 混合检索）/ 2026-06-08（找文档页面 + 格式扩展）  
+**状态：** MCP Server ✅ / Web App ✅ / 组织图谱 ✅ / Lakehouse 模块 ✅ / 混合检索 ✅ / 找文档页面 ✅ / 格式扩展 ✅  
+**定位：** 统一知识服务平台，支持 Agent Function Calling / MCP 和 Web API 两种访问形式。包含非结构化文档混合检索（向量语义 + BM25 关键词，RRF 融合）、组织关系图谱（图查询 + NL 问答）、数据湖仓查询（Lakehouse API）等知识模块。支持 10 种文档格式：.pdf / .docx / .txt / .md / .xlsx / .xls / .pptx / .csv / .html / .htm。
 
 ---
 
@@ -24,7 +24,7 @@
 
 | 模块 | 方案 | 理由 |
 |------|------|------|
-| 文档解析 | `pypdf` + `python-docx` + 原生读 TXT | 轻量，无重度框架依赖 |
+| 文档解析 | `pypdf` + `python-docx` + 内置读 TXT/MD/CSV/HTML + `openpyxl`/`xlrd`（Excel）+ `python-pptx`（PPT） | 覆盖 10 种格式，无重度框架依赖 |
 | Embedding | `sentence-transformers` `paraphrase-multilingual-MiniLM-L12-v2` | 公司代理无 embedding 模型权限；本地免费，支持中文 |
 | 向量数据库 | ChromaDB（本地持久化） | 无需部署，原型首选；后期可迁移 Milvus |
 | 关键词检索 | `rank_bm25` (BM25Plus) + `jieba` 中文分词 | 与向量语义互补，提升关键词精确匹配 |
@@ -116,7 +116,9 @@ def search(query_embedding: list[float], top_k: int) -> list[dict]:
 #### chunker.py
 ```python
 def load_and_chunk(file_path: str) -> list[dict]:
-    """解析 .pdf / .docx / .txt，按 CHUNK_SIZE/OVERLAP 分块，返回 chunk 列表"""
+    """解析 .pdf/.docx/.txt/.md/.xlsx/.xls/.pptx/.csv/.html/.htm，
+    按 CHUNK_SIZE/OVERLAP 分块，返回 chunk 列表。
+    Excel/PPT 采用结构感知提取（Sheet名/字段头/幻灯片标题作前缀）。"""
 ```
 
 #### bm25_store.py
@@ -206,7 +208,7 @@ ask_document:
 
 ```bash
 # 1. 安装依赖
-pip install sentence-transformers chromadb pypdf python-docx mcp anthropic
+pip install sentence-transformers chromadb pypdf python-docx mcp anthropic openpyxl xlrd python-pptx
 
 # 2. 将文档放入 docs_input/
 cp 合同模板.pdf knowledge-server/docs_input/
@@ -332,8 +334,9 @@ data: [DONE]
 #### 13.3 上传页 (`/upload`)
 
 **页面元素：**
-- 文件选择（支持多文件，accept=".pdf,.docx,.txt"）
+- 文件选择（支持多文件，accept 涵盖全部 10 种格式）
 - 上传按钮
+- 格式提示文字（.pdf / .docx / .txt / .md / .xlsx / .xls / .pptx / .csv / .html）
 - 已索引文件列表（从 ChromaDB metadata 聚合）
 - 上传结果反馈
 
@@ -346,10 +349,10 @@ data: [DONE]
 
 **页面元素：**
 - 目录路径输入框（默认 `config.DOCS_DIR`）+ 扫描按钮
-- 过滤行：文件名关键词 / 递归子目录开关 / 扩展名复选框（PDF / DOCX / TXT / MD）
+- 过滤行：文件名关键词 / 递归子目录开关 / 扩展名复选框（按类型分组：文档 PDF/DOCX/TXT/MD，表格 XLSX/XLS/CSV，演示 PPTX，网页 HTML/HTM）
 - 结果工具栏：文件数统计 + 全选/取消全选 + 「索引选中 (N)」按钮
 - 结果表格：序号、文件名、类型、大小、修改时间、相对路径
-- 索引进度区：逐文件显示 ⏳→✓/✗，完成后汇总
+- 索引进度区：逐文件显示 ⏳→✓/✗，完成后汇总 + alert() 弹窗提示
 
 **流程：**
 1. 用户输入目录路径 + 过滤条件，点击「扫描」
@@ -389,6 +392,9 @@ data: {"total": 2, "success": 1, "failed": 1}
 | 文件格式不支持 | 上传页返回错误提示，不中断其他文件处理 |
 | 目录不存在 | 找文档扫描接口返回 `{"error": "目录不存在：..."}` |
 | 文件解析失败（索引时） | SSE 发送 `{"status": "error", "error": "..."}` 并继续处理下一文件 |
+| Excel/PPT 依赖未安装（openpyxl/xlrd/python-pptx） | `ImportError` 在 `load_and_chunk` 内抛出，上传页/索引进度展示具体错误信息 |
+| CSV/Excel 文件编码异常 | `errors='replace'` 容错，不中断解析 |
+| HTML 提取后文本为空 | 生成 0 个 chunk，不报错 |
 
 ---
 
@@ -967,6 +973,7 @@ def get_stats(G) -> dict
 ## 第七部分：后续扩展方向
 
 - [x] ~~混合检索（向量 + BM25 关键词）~~ ✅ 2026-06-03
+- [x] ~~扩展文档格式（Excel / PPT / CSV / HTML / Markdown）~~ ✅ 2026-06-08
 - [ ] 支持内网系统（Confluence / SharePoint）作为文档来源
 - [ ] `dlake knowledge ingest / ask` CLI 子命令
 - [ ] 向量库迁移到 Milvus（生产环境）
