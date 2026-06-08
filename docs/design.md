@@ -363,7 +363,16 @@ data: [DONE]
 6. 后端对每个文件依次执行 `chunker.load_and_chunk → embedder.embed → store.upsert`，逐文件 SSE 播报进度
 7. 前端通过 ReadableStream 消费 POST SSE，实时更新每行状态，最终显示汇总
 
-**SSE 协议格式（POST SSE，用 fetch + ReadableStream 消费）：**
+**`GET /find/api/scan` 参数：**
+
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `dir` | string | `config.DOCS_DIR` | 要扫描的根目录绝对路径 |
+| `query` | string | `""` | 文件名模糊过滤（子串或 `*/?` 通配符） |
+| `ext` | string | 全部 10 种格式 | 逗号分隔的扩展名 |
+| `recursive` | bool | `true` | 是否递归子目录 |
+
+**`POST /find/api/index` SSE 协议（fetch + ReadableStream 消费）：**
 ```
 data: {"file": "合同模板.pdf", "status": "indexing"}
 data: {"file": "合同模板.pdf", "status": "done", "chunks": 12}
@@ -970,7 +979,119 @@ def get_stats(G) -> dict
 
 ---
 
-## 第七部分：后续扩展方向
+## 第七部分：文档格式扩展
+
+---
+
+### 42. 格式扩展目标
+
+将 `chunker.py` 支持的格式从 3 种（.pdf / .docx / .txt）扩展至 10 种，覆盖企业常见办公文档类型，同步更新 `ingest.py` 常量、`web_app.py` 上传白名单和前端 UI。
+
+---
+
+### 43. 支持格式与解析库
+
+| 格式 | 解析库 | 说明 |
+|------|--------|------|
+| `.pdf` | `pypdf` | 逐页提取文本 |
+| `.docx` | `python-docx` | 逐段提取段落 |
+| `.txt` | 内置 | UTF-8 读取 |
+| `.md` | 内置（复用 `_load_txt`） | Markdown 原文入库，保留标记符号 |
+| `.xlsx` | `openpyxl` | 结构感知：Sheet 名 + 字段:值格式 |
+| `.xls` | `xlrd` | 同上，兼容旧版 Excel |
+| `.pptx` | `python-pptx` | 逐页提取标题 + 文本框内容 |
+| `.csv` | 内置 `csv` | 字段:值格式，自动探测分隔符（`,`/`\t`） |
+| `.html` / `.htm` | 内置 `html.parser` | 剥离标签，过滤 `<script>`/`<style>` |
+
+---
+
+### 44. 结构感知提取格式
+
+所有新格式提取完文本后均交给现有 `_chunk_text()` 按 CHUNK_SIZE/OVERLAP 切分，不改变 chunk 的下游接口。
+
+**Excel（.xlsx / .xls）**
+```
+表名：销售数据
+产品名称: iPhone | 数量: 100 | 金额: 99000
+产品名称: iPad   | 数量: 50  | 金额: 24500
+
+表名：库存数据
+仓库: 北京 | 数量: 500
+```
+- 首行作为字段名前缀，逐行拼接 `字段: 值 | ...`；跳过全空行。
+
+**PowerPoint（.pptx）**
+```
+--- 第1页：季度总结 ---
+本季度营收增长 15%，主要来自华南区域的...
+
+--- 第2页：下一步计划 ---
+1. 扩大渠道覆盖  2. 优化成本结构
+```
+- placeholder 类型 15（TITLE）/ 3（CENTER_TITLE）优先拼在页头，其余文本框追加。
+
+**CSV**
+```
+姓名: 张三 | 部门: 研发 | 薪资: 20000
+姓名: 李四 | 部门: 市场 | 薪资: 18000
+```
+- 首行作为字段名；`errors='replace'` 容错；按 `,`/`\t` 自动探测分隔符。
+
+**HTML / HTM**
+- `HTMLParser` 子类收集文本；遇 `h1-h6 / p / div / li / br` 插入换行；`<script>` / `<style>` / `<head>` 内容跳过。
+
+---
+
+### 45. 常量对齐
+
+```python
+# ingest.py
+SUPPORTED = {
+    ".pdf", ".docx", ".txt", ".md",
+    ".xlsx", ".xls", ".pptx",
+    ".csv", ".html", ".htm",
+}
+FIND_SUPPORTED = SUPPORTED  # 完全对齐，无独立集合
+```
+
+`web_app.py` 上传路由后缀白名单、`find_scan` 默认 ext 参数均同步更新。
+
+---
+
+### 46. 前端更新
+
+**找文档页 — 扩展名 checkbox 按类型分组：**
+```
+文档：☑ PDF  ☑ DOCX  ☑ TXT  ☑ MD
+表格：☑ XLSX  ☑ XLS  ☑ CSV
+演示：☑ PPTX
+网页：☑ HTML  ☑ HTM
+```
+
+**找文档页 — 索引完成弹窗：**
+- `event: done` 且 `total > 0` 时触发：
+```javascript
+alert(`索引完成\n✓ 成功：${d.success} 个文件\n✗ 失败：${d.failed} 个文件`);
+```
+
+**上传页 — accept 属性：**
+```html
+<input type="file" name="files" multiple
+  accept=".pdf,.docx,.txt,.md,.xlsx,.xls,.pptx,.csv,.html,.htm">
+<small>支持 .pdf / .docx / .txt / .md / .xlsx / .xls / .pptx / .csv / .html</small>
+```
+
+---
+
+### 47. 不做的事情
+
+- 不支持 `.doc` / `.ppt`（旧版二进制格式，依赖 LibreOffice / win32com）
+- 不做 Excel 公式求值（`data_only=True` 只取缓存值）
+- 不做 HTML 图片 alt 文字提取
+
+---
+
+## 第八部分：后续扩展方向
 
 - [x] ~~混合检索（向量 + BM25 关键词）~~ ✅ 2026-06-03
 - [x] ~~扩展文档格式（Excel / PPT / CSV / HTML / Markdown）~~ ✅ 2026-06-08
